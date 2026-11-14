@@ -1,0 +1,25 @@
+{
+  "base_checkpoint": "artifacts/models/demo-base/best.pt",
+  "sft_manifest": "datasets/sft/demo-qa/manifest.json",
+  "training": {
+    "route": "full",
+    "steps": 2,
+    "microbatch": 1,
+    "accumulation": 1,
+    "sequence_length": 128,
+    "rank": 4,
+    "groups": 2,
+    "gaussian_centers": 5,
+    "scale_alpha": 4.0,
+    "calibration_positions": 32,
+    "pca_dimensions": 4,
+    "candidate_centers": 8,
+    "selected_centers": 4,
+    "initial_step": 1.0,
+    "max_step": 8.0,
+    "max_evaluations": 6,
+    "eval_every": 1,
+    "eval_batches": 1,
+    "save_every": 2
+  }
+}

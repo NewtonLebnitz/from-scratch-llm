@@ -1,0 +1,23 @@
+{
+  "token_manifest": "datasets/pretrain/demo/manifest.json",
+  "model": {
+    "vocab_size": 512,
+    "context_length": 128,
+    "d_model": 64,
+    "num_layers": 1,
+    "num_heads": 4,
+    "num_kv_heads": 2,
+    "d_ff": 128,
+    "attention": "standard"
+  },
+  "training": {
+    "steps": 2,
+    "microbatch": 1,
+    "accumulation": 1,
+    "sequence_length": 64,
+    "warmup_steps": 0,
+    "eval_every": 1,
+    "eval_batches": 1,
+    "save_every": 2
+  }
+}
