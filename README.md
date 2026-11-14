@@ -2,55 +2,53 @@
 
 [![CPU core checks](https://github.com/NewtonLebnitz/from-scratch-llm/actions/workflows/cpu.yml/badge.svg)](https://github.com/NewtonLebnitz/from-scratch-llm/actions/workflows/cpu.yml)
 
-**从零训练语言模型与在线推理加速**
-
 A PyTorch implementation of bilingual language-model pretraining, supervised fine-tuning, and request-aware CUDA Graph scheduling. Standard GQA Transformer and modern Hopfield attention share the training workflow.
 
-本项目覆盖 **模型实现 → 数据处理 → 中英预训练 → SFT → 自回归生成 → 推理性能评测**。重点是未知后续题长时，如何在保持输出一致的前提下，减少一次回答的总等待时间。
+The project covers **model implementation → data processing → bilingual pretraining → SFT → autoregressive generation → inference benchmarking**. Its main optimization task is to reduce the total time required to answer a request while preserving the output, without knowing the lengths of future requests.
 
-## 项目要点
+## Highlights
 
-- **手写模型**：字节 BPE、RMSNorm、RoPE、GQA、SwiGLU、AdamW 与训练循环；语言模型不调用 Transformers 的现成架构。
-- **两种架构**：18 层、768 维、12 个 Q 头 / 3 个 KV 头，约 **1.61 亿参数**；标准注意力与现代 Hopfield 注意力。Hopfield 使用作者公式在当前 GQA 架构中的移植，不是原论文完整实验复现。
-- **训练流程**：中英预训练；标准模型的全参数、GenLoRA 风格 RBF 低秩适配、Gaussian OLS + 最速下降三条 SFT 路线；Hopfield 自己的全参数 SFT。
-- **在线推理**：KV cache、投影打包、共享 RoPE、预填充末层最后查询、Hopfield Triton 解码内核，以及根据历史实测收益决定的 Capture / Replay。
-- **可复现入口**：CPU 小模型命令、示例数据生成器、单元测试、正式模型结构配置、性能协议与历史汇总结果。
+- **From-scratch components:** byte-level BPE, RMSNorm, RoPE, GQA, SwiGLU, AdamW, and the training loop. The language model does not use prebuilt Transformers model architectures.
+- **Two architectures:** 18 layers, hidden size 768, 12 query heads / 3 KV heads, and approximately **161 million parameters**. The Hopfield variant ports the authors' attention equations into this GQA architecture; it is not a reproduction of their complete experimental setup.
+- **Training workflow:** bilingual pretraining; full-parameter SFT, GenLoRA-style RBF low-rank adaptation, and Gaussian OLS + steepest descent for the standard model; separate full-parameter SFT for the Hopfield model.
+- **Online inference:** KV cache, packed projections, shared RoPE, last-query-only computation in the final prefill layer, a Triton kernel for Hopfield decoding, and Capture / Replay decisions based on measured historical costs and predicted reuse.
+- **Runnable entry points:** a small CPU demo, a synthetic-data generator, unit tests, full-size architecture configurations, benchmark protocols, and historical aggregate results.
 
-## 流程
+## Workflow
 
 ```mermaid
 flowchart LR
-  T[中英文档] --> B[训练 Byte BPE]
-  B --> P[从零预训练]
-  P --> S[标准 GQA Transformer]
+  T[Bilingual documents] --> B[Train byte-level BPE]
+  B --> P[Pretrain from scratch]
+  P --> S[Standard GQA Transformer]
   P --> H[Hopfield Transformer]
-  S --> F[全参数 SFT]
+  S --> F[Full-parameter SFT]
   S --> G[GenLoRA + AdamW]
-  S --> O[Gaussian OLS + 最速下降]
-  H --> HF[Hopfield 全参数 SFT]
-  F --> I[自回归推理]
+  S --> O[Gaussian OLS + steepest descent]
+  H --> HF[Hopfield full-parameter SFT]
+  F --> I[Autoregressive inference]
   G --> I
   O --> I
   HF --> I
-  I --> A[历史实测驱动的 CUDA Graph 准入]
+  I --> A[History-based CUDA Graph admission]
 ```
 
-## 主要实测结果
+## Measured Results
 
-**历史正式 GPU 实验：四个模型，每模型 256 个领域问题 + 32 个日常问题，各三轮。** 共同模型加载/预热排除；方法专属编译、试录、Capture 与阻塞等待计入。下表为三轮整轮平均每题耗时，不是单次最快值。
+**Historical GPU experiments: four models, each evaluated on 256 domain questions and 32 everyday questions over three rounds.** Common model loading and warm-up are excluded; method-specific compilation, trial capture, Capture, and blocking waits are included. The table reports the mean per-request time across the complete rounds, not the fastest individual run.
 
-| 模型 | 最快已测对照 ms/题 ↓ | 动态在线方案 ms/题 ↓ | 耗时降低 | 加速比 ↑ |
+| Model | Fastest tested baseline, ms/request ↓ | Dynamic online method, ms/request ↓ | Time reduction | Speedup ↑ |
 |---|---:|---:|---:|---:|
-| 标准全参数 SFT | 91.59 | **54.46** | 40.5% | 1.68× |
+| Standard full-parameter SFT | 91.59 | **54.46** | 40.5% | 1.68× |
 | GenLoRA SFT | 91.13 | **50.60** | 44.5% | 1.80× |
-| OLS + 最速下降 SFT | 122.83 | **59.60** | 51.5% | 2.06× |
-| Hopfield 全参数 SFT | 105.71 | **52.28** | 50.5% | 2.02× |
+| OLS + steepest-descent SFT | 122.83 | **59.60** | 51.5% | 2.06× |
+| Hopfield full-parameter SFT | 105.71 | **52.28** | 50.5% | 2.02× |
 
-对应路径在冻结工作负载上核验了完整 token 与 EOS 一致。不同路径的精度配置存在差别，因此这是通过输出检查的完整执行方案比较，不代表纯策略的同精度因果效应，也不代表所有热态指标均最优。详见 [完整结果与消融](docs/RESULTS.md) 和 [计时协议](docs/BENCHMARK_PROTOCOL.md)。
+The corresponding paths were checked for complete token-sequence and EOS agreement on the frozen workload. Precision settings differ between some paths, so these results compare complete execution configurations that passed the output checks. They do not isolate the causal effect of the scheduling policy at identical precision, nor imply that every steady-state metric is the best. See [full results and ablations](docs/RESULTS.md) and the [timing protocol](docs/BENCHMARK_PROTOCOL.md).
 
-## 快速开始
+## Quick Start
 
-Python 3.12+；先安装适合本机的 PyTorch。以下全部默认 CPU，不自动占用 GPU。
+Use Python 3.12+ and install a suitable PyTorch build for your machine. All commands below default to CPU and do not automatically use a GPU.
 
 ```bash
 python -m venv .venv
@@ -64,7 +62,7 @@ python -B main.py --workspace .runtime/run pretrain --config configs/pretrain-de
 python -B main.py --workspace .runtime/run generate --kind base --checkpoint artifacts/models/demo-base/best.pt --tokenizer demo --prompt "The robot" --max-new-tokens 8
 ```
 
-然后完成一条全参数 SFT：
+Then run full-parameter SFT:
 
 ```bash
 python -B main.py --workspace .runtime/run register-sft --name demo-qa --tokenizer demo --train .runtime/input/sft/train.jsonl --dev .runtime/input/sft/dev.jsonl
@@ -72,27 +70,27 @@ python -B main.py --workspace .runtime/run sft --config configs/sft-full-demo.js
 python -B main.py --workspace .runtime/run generate --checkpoint artifacts/models/demo-full/best.pt --tokenizer demo --prompt "What is a robot?" --max-new-tokens 8
 ```
 
-小配置只训练两步，用于验证程序链路，**不会得到正式问答能力**。三种标准 SFT 都直接使用同一个预训练检查点，互不继续训练。完整命令及数据格式见 [运行手册](docs/USAGE.md)。
+The small configurations train for only two steps to validate the execution pipeline; **they do not produce the full trained model's question-answering capability**. All three standard SFT routes start directly from the same pretrained checkpoint, rather than continuing from one another. See the [usage guide](docs/USAGE.md) for complete commands and data formats.
 
-## 代码导航
+## Code Map
 
-| 模块 | 源码 |
+| Component | Source |
 |---|---|
-| 命令行与数据注册 | [main.py](main.py) |
-| Byte BPE | [bpe.py](src/mlsystem/bpe.py) |
+| CLI and data registration | [main.py](main.py) |
+| Byte-level BPE | [bpe.py](src/mlsystem/bpe.py) |
 | GQA / RMSNorm / SwiGLU / RoPE | [components.py](src/mlsystem/components.py) |
-| Transformer 与跨层 Hopfield 状态 | [model.py](src/mlsystem/model.py) |
-| 预训练与检查点 | [training.py](src/mlsystem/training.py) |
+| Transformer and cross-layer Hopfield state | [model.py](src/mlsystem/model.py) |
+| Pretraining and checkpoints | [training.py](src/mlsystem/training.py) |
 | SFT / GenLoRA / OLS | [sft.py](src/mlsystem/sft.py), [genlora.py](src/mlsystem/genlora.py), [ols_rbf.py](src/mlsystem/ols_rbf.py) |
-| 在线收益判断与图池管理 | [online_cuda_policy_v2.py](inference_cuda/online_cuda_policy_v2.py) |
-| 请求计时、Capture 与 Replay | [online_cuda_engine_v2.py](inference_cuda/online_cuda_engine_v2.py) |
-| Hopfield Triton 注意力 | [hopfield_inference_triton_v1.py](inference_cuda/hopfield_inference_triton_v1.py) |
-| 可选 PCA + SOM 检索 | [retrieval.py](src/mlsystem/retrieval.py) |
+| Online benefit estimation and graph-pool management | [online_cuda_policy_v2.py](inference_cuda/online_cuda_policy_v2.py) |
+| Request timing, Capture, and Replay | [online_cuda_engine_v2.py](inference_cuda/online_cuda_engine_v2.py) |
+| Hopfield Triton attention | [hopfield_inference_triton_v1.py](inference_cuda/hopfield_inference_triton_v1.py) |
+| Optional PCA + SOM retrieval | [retrieval.py](src/mlsystem/retrieval.py) |
 
-发布验证：[28 项测试与四路 CPU 链路](docs/VALIDATION.md)。
+Release validation: [28 tests and four CPU SFT pipelines](docs/VALIDATION.md).
 
-进一步阅读：[架构](docs/ARCHITECTURE.md) · [训练与数据](docs/TRAINING.md) · [推理设计](docs/INFERENCE.md) · [数据说明](docs/DATA_CARD.md) · [实现与引用](NOTICE.md)。
+Further reading: [architecture](docs/ARCHITECTURE.md) · [training and data](docs/TRAINING.md) · [inference design](docs/INFERENCE.md) · [data card](docs/DATA_CARD.md) · [implementation and references](NOTICE.md).
 
-## 发布范围
+## Release Scope
 
-这里是课程工程的便携公开核心，不包含内部服务器管理脚本、模型权重、完整训练语料、论文全文、个人简历或任何未公开 VLA 研究代码。可先运行 CPU 验证流程；完整训练与 CUDA 性能复现实验需要自行准备授权数据、检查点和匹配设备。SOM 只提供证据检索，不代替模型生成答案。
+This repository contains the portable public core of the engineering project. Start with the CPU validation workflow. Reproducing full training and CUDA performance experiments requires appropriately licensed data, checkpoints, and compatible hardware that you prepare yourself. SOM provides evidence retrieval only; it does not generate answers in place of the model.
