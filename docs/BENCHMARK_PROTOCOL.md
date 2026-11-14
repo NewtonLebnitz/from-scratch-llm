@@ -1,24 +1,24 @@
-# 历史实验协议与公开复现边界
+# Historical Benchmark Protocol and Reproduction Scope
 
-## 工作负载
+## Workload
 
-四个固定SFT检查点：标准全参、GenLoRA、OLS加最速下降、官方公式移植的Hopfield全参。每路径使用相同288个问题及到达顺序，256领域问与32日常问，各三轮。领域问题来自64个已学事实的不同问法，日常来自16个任务；速度工作负载不是陌生知识正确率基准。
+Four fixed SFT checkpoints: standard full-parameter, GenLoRA, OLS + steepest descent, and full-parameter Hopfield with the authors' equations ported into this architecture. Every path receives the same 288 questions in the same arrival order: 256 domain questions and 32 everyday questions, over three rounds. Domain questions paraphrase 64 learned facts; everyday questions cover 16 tasks. This speed workload is not an unseen-knowledge accuracy benchmark.
 
-## 计时
+## Timing
 
-- 共同模型加载和共同模型预热排除，方法独有的编译、试运行、Capture、测速及挡住请求的等待计入。
-- 每轮从空的在线图历史开始，不预先根据问题列表录图或选择桶；历史只能在请求完成后更新。
-- 基线组和在线组按各自协议交替/轮换方法顺序，不把不同批次画成同一次随机化实验。
-- 首token时间：题目进入推理到第一个回答token交付；总耗时：到停止；解码tokens/s只计算首token之后的生成阶段。
-- 三轮整轮总耗时/288后再平均，得到表中整轮均值。它包含准备成本，不能用只计热态的P50替代。
-- 单题每指标先取三轮中位数，再分别对256领域题和32日常题报告P50/P95；不是额外重跑。
-- 冷首题单列且不从整轮扣除；Hopfield冷JIT另外在新进程复核。
-- 对每条输出核验完整token序列、停止原因及EOS；保留立即结束、上限停止和失败信息，不通过缩短回答换速度。
+- Exclude common model loading and warm-up. Include method-specific compilation, trial execution, Capture, timing probes and any waiting that blocks requests.
+- Begin each round with empty online history. Do not pre-capture graphs or choose buckets from the question list; update history only after requests complete.
+- Alternate or rotate method order according to each baseline/online experiment's protocol. Do not present separate batches as one randomized experiment.
+- Time to first token: from request entry to delivery of the first answer token. Total latency: until stopping. Decode tokens/s covers generation after the first token only.
+- Divide each round's total elapsed time by 288, then average over three rounds for the round-level mean. This includes preparation costs and cannot be replaced by steady-state P50.
+- For each question and metric, first take the median across three rounds, then report P50/P95 separately for the 256 domain and 32 everyday questions. These are not extra runs.
+- Report the cold first request separately without subtracting it from the round total. Check Hopfield cold JIT in a fresh process as well.
+- Check complete token sequences, stop reasons and EOS for every output. Retain immediate stops, length-limit stops and failures; do not shorten answers to claim speed improvements.
 
-## 设备与精度
+## Device and Precision
 
-历史正式实验在单张NVIDIA L20上进行。对照执行路径包含FP16和FP32配置差异，必须结合[结果表](RESULTS.md)的路径说明阅读；逐token一致性属于本冻结工作负载的实际检查，不能保证任意新输入在混合精度下都相同。
+Historical formal experiments used one NVIDIA L20. Some execution paths differ in FP16/FP32 settings; read the path descriptions in the [results](RESULTS.md). Token agreement was checked on the frozen workload and does not guarantee identical mixed-precision output for arbitrary new inputs.
 
-## 本公开版能复现什么
+## What This Release Reproduces
 
-CPU测试覆盖模型形状、因果性、优化器、三路SFT更新/加载与恢复、分词、检索等核心逻辑；示例命令可端到端训练小模型。这里没有发布正式权重、完整训练原文及私有原始运行记录，不能仅运行两步demo就重现历史延迟。重新训练正式模型后，应保存环境版本、设备信息、检查点/输入/源码散列，按上述规则重新比较原始与在线路径；不要把自测数值直接填成历史实验。
+CPU tests cover model shapes, causality, optimizers, three SFT routes, updates/reloading/resume, tokenization and retrieval. Example commands train a small model end to end. Formal weights, complete source corpora and private raw run records are not released; a two-step demo cannot reproduce the historical latency. After training your own model, save environment/device details and checkpoint/input/source hashes, then compare reference and online paths using these rules. Do not label your new measurements as the historical experiment.

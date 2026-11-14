@@ -1,48 +1,48 @@
-# 一次回答的推理与在线图调度
+# Answer Generation and Online Graph Scheduling
 
-## 优化对象
+## Optimization Target
 
-输入问题先分词；预填充并行处理全部提示，建立每层KV cache并给出首个回答token；解码每次只处理一个新token，更新KV并预测下一个token；遇EOS或预算结束后停止。目标是减少一次回答的等待，输出内容、token与结束行为仍需逐条核验。
+Tokenize the question. Prefill processes all prompt positions in parallel, builds each layer's KV cache and predicts the first answer token. Decoding processes one new token at a time, updates the cache and predicts the next token. Stop at EOS or the generation budget. The goal is to reduce request latency while checking output text, tokens and stopping behavior for each request.
 
-## 执行层
+## Execution Layer
 
-1. 缓存每层历史K/V，避免每次重算完整前缀。
-2. 按可合并的权重布局打包QKV和SwiGLU投影；共享位置编码计算。
-3. 预填充最后一层只计算用于首token预测的最后查询输出，但仍建立解码所需的前缀K/V。
-4. 标准注意力调用PyTorch现成算子；Hopfield解码使用Triton注意力内核，按需JIT。
-5. 在线v2跳过预填充/解码整段`torch.compile`包装；底层库算子继续使用已有GPU实现。这与“完全不调用GPU算子”不同。
+1. Cache each layer's past K/V to avoid recomputing the entire prefix.
+2. Pack QKV and SwiGLU projections where weight layouts permit; share positional-encoding computation.
+3. In the final prefill layer, compute only the last query output needed for the first token, while retaining prefix K/V required by decoding.
+4. Standard attention uses existing PyTorch operators. Hopfield decoding uses a Triton attention kernel compiled by JIT when needed.
+5. Online v2 bypasses whole-function `torch.compile` wrappers for prefill and decoding. Underlying library operators still use their existing GPU implementations.
 
-## 在线决策
+## Online Decisions
 
 ```mermaid
-flowchart TD
- A[真实请求到达] --> B{已有可用图?}
- B -->|是| C[填入本题输入后Replay]
- B -->|否| D[直接执行张量函数并计时]
- C --> E[真实回答完成]
+flowchart TB
+ A[Request arrives] --> B{Usable graph exists?}
+ B -->|Yes| C[Write new input and Replay]
+ B -->|No| D[Execute tensor function and measure]
+ C --> E[Answer completes]
  D --> E
- E --> F[将本题实际长度与耗时加入历史]
- F --> G[统计已到达历史的加权复用次数]
- G --> H{样本及预计收益达到门槛?}
- H -->|否| Z[保留当前图池]
- H -->|是| J[合成固定形状输入并试运行/Capture/测速]
- J --> K[计算实际准备代价与预计未来省时]
- K --> L{扣除准备和替换损失后仍划算?}
- L -->|是| M[在预算内留图或替换]
- L -->|否| Z
+ E --> F[Add actual length and latency to history]
+ F --> G[Compute weighted historical reuse counts]
+ G --> H{Enough samples and predicted benefit?}
+ H -->|No| Z[Keep current graph pool]
+ H -->|Yes| J[Construct fixed-shape input; trial run, Capture and time Replay]
+ J --> K[Measure preparation cost and predict future savings]
+ K --> L{Positive benefit after preparation and eviction costs?}
+ L -->|Yes| M[Retain or replace within budget]
+ L -->|No| Z
 ```
 
-- 预填充与解码都按16对齐的候选长度，实际请求长度用于有效位置与因果掩码，补齐区域不作为真实历史。
-- 最近24个已完成请求构成历史，权重按0.9衰减；预测窗口为未来24个请求。不能读取尚未到达的问题或预先利用全部题长。
-- 候选需要至少3条相应直接路径耗时样本；同桶试录有16请求冷却，每题最多一次候选试录。
-- 共用8张图、384MiB图池预算；图池内存使用估算值，实际Capture时间及三次Replay测速实测。
-- 预计复用省时要扣除实测准备成本，替换旧图还要扣除失去旧图预计收益；不通过就继续直接路径。
-- Capture记录固定内存与形状的GPU操作；Replay使用本题新输入重放操作，不复用旧答案。
+- Both prefill and decoding consider candidate lengths aligned to 16. Actual lengths determine valid positions and causal masks; padding is not real history.
+- History contains the latest 24 completed requests with exponential decay 0.9; the prediction horizon is 24 future requests. The policy cannot inspect future questions or their lengths.
+- A candidate requires at least three relevant direct-path timing samples. Trial capture of the same bucket has a 16-request cooldown. At most one candidate is trialed per request.
+- The pool shares a budget of eight graphs and 384 MiB. Graph memory is estimated; Capture duration and three Replay timings are measured.
+- Predicted reuse savings must exceed measured preparation cost. Replacing a graph also subtracts its predicted lost benefit. Otherwise, keep the direct path.
+- Capture records GPU operations with fixed shapes and memory addresses. Replay runs them on the new request's inputs; it does not reuse an old answer.
 
-源码阅读顺序：`online_cuda_policy_v2.py` → `online_cuda_engine_v2.py` → `online_cuda_engine_v1.py` → `allarchitectures_inference_engine_v1.py`。其余`inference_cuda/`文件包含继承链、注意力内核及共同方法实现，不要只复制两份入口文件。
+Read the source in this order: `online_cuda_policy_v2.py` → `online_cuda_engine_v2.py` → `online_cuda_engine_v1.py` → `allarchitectures_inference_engine_v1.py`. Other `inference_cuda/` files provide the inheritance chain, attention kernels and shared methods. Copying only two entry files is insufficient.
 
-## 运行
+## Running
 
-对可信SFT检查点，`main.py ... generate --device cuda --backend cuda-online --requests <JSONL>`可按到达顺序复用同一进程的历史。输入每行含`question`与可选`context`。提示加生成预算不得超过512。不要将不同进程之间的缓存看作同一个在线图池。
+For trusted SFT checkpoints, `main.py ... generate --device cuda --backend cuda-online --requests <JSONL>` retains one process's history across requests in arrival order. Each input line contains `question` and optional `context`. Prompt plus generation budget must not exceed 512 tokens. Caches in different processes are not one online graph pool.
 
-公开版的CUDA路径来自既有实现，本次发布只重跑CPU测试，不占用GPU。历史速度见[结果](RESULTS.md)，计时口径见[实验协议](BENCHMARK_PROTOCOL.md)。
+The CUDA path is the existing implementation. This release reran CPU checks only and did not use a GPU. See [historical results](RESULTS.md) and the [benchmark protocol](BENCHMARK_PROTOCOL.md).

@@ -1,19 +1,19 @@
-# 数据发布说明
+# Data Card
 
-## 随仓库提供
+## Included in the Repository
 
-`scripts/make_demo_data.py`生成自编中英文流程样例与少量问答，供CPU准备、训练、SFT和生成命令验证。它们是合成的程序检查材料，不是知识能力测评集。
+`scripts/make_demo_data.py` generates original bilingual synthetic documents and a small number of QA examples for CPU preparation, pretraining, SFT and generation checks. These are execution fixtures, not a knowledge-capability benchmark. Unicode escapes preserve Chinese fixture text while keeping the source readable in English.
 
-## 历史完整任务
+## Historical Full-Size Task
 
-- 中英预训练来自经整理的FineWiki语料；32k BPE只拟合TRAIN文本。
-- SFT为经审核的中英完整问答，14,336条，知识范围为VLA资料及已获得全文论文中的有限事实和日常任务。
-- 速度评估分256领域问题、32日常问题，领域改写属于已学事实范围；不应声称覆盖全部VLA或某位作者全部论文。
+- Bilingual pretraining uses processed FineWiki documents. The 32k BPE vocabulary is fitted on TRAIN text only.
+- SFT uses 14,336 reviewed bilingual QA records covering limited facts from VLA materials and papers available in full text, as well as everyday tasks.
+- Inference evaluation separates 256 domain questions and 32 everyday questions. Domain paraphrases concern learned facts; this does not imply coverage of all VLA knowledge or all papers by an author.
 
-## 未发布材料
+## Materials Not Released
 
-原始论文全文、受来源条款约束的原文、完整训练语料、真实模型检查点、内部服务配置及未公开VLA研究均不在本仓库。需要者自行取得合法数据并按`docs/USAGE.md`格式构建。
+Full papers, source texts subject to their own terms, complete training corpora, trained checkpoints, internal service configurations and unpublished VLA research are not included. Obtain authorized data and use the formats in `docs/USAGE.md`.
 
-## 划分原则
+## Splitting Principles
 
-新任务按文档/来源族或语义组隔离TRAIN与DEV/TEST，防止同义改写泄漏。DEV用于选点，TEST不参与调参。数据文件、分词器与父模型保存SHA-256绑定；模型回答与检索证据分开保存。
+For new tasks, separate TRAIN and DEV/TEST by document, source family or semantic group to prevent paraphrase leakage. DEV selects checkpoints; TEST is not used for tuning. Data files, tokenizers and parent models are bound by SHA-256. Store model answers separately from retrieved evidence.
