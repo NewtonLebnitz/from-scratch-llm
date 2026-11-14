@@ -1,5 +1,7 @@
 # From-Scratch LLM Training & Online Inference
 
+[![CPU core checks](https://github.com/NewtonLebnitz/from-scratch-llm/actions/workflows/cpu.yml/badge.svg)](https://github.com/NewtonLebnitz/from-scratch-llm/actions/workflows/cpu.yml)
+
 **从零训练语言模型与在线推理加速**
 
 A PyTorch implementation of bilingual language-model pretraining, supervised fine-tuning, and request-aware CUDA Graph scheduling. Standard GQA Transformer and modern Hopfield attention share the training workflow.
@@ -86,6 +88,8 @@ python -B main.py --workspace .runtime/run generate --checkpoint artifacts/model
 | 请求计时、Capture 与 Replay | [online_cuda_engine_v2.py](inference_cuda/online_cuda_engine_v2.py) |
 | Hopfield Triton 注意力 | [hopfield_inference_triton_v1.py](inference_cuda/hopfield_inference_triton_v1.py) |
 | 可选 PCA + SOM 检索 | [retrieval.py](src/mlsystem/retrieval.py) |
+
+发布验证：[28 项测试与四路 CPU 链路](docs/VALIDATION.md)。
 
 进一步阅读：[架构](docs/ARCHITECTURE.md) · [训练与数据](docs/TRAINING.md) · [推理设计](docs/INFERENCE.md) · [数据说明](docs/DATA_CARD.md) · [实现与引用](NOTICE.md)。
 
